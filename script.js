@@ -125,6 +125,13 @@ let recognitionSessionActive = false;
 let finalizeWhenRecognitionEnds = false;
 let silenceTimerId = null;
 let currentSegmentIndex = 0;
+let transcriptDetailsVisible = false;
+let mediaRecorder = null;
+let mediaStream = null;
+let mediaChunks = [];
+let segmentAudioUrls = [];
+let recordingSegmentIndex = -1;
+let audioStopPromise = null;
 const recognitionSilenceGraceMs = 3200;
 const segmentLabels = ["palabra inicial", "deletreo", "palabra final"];
 
@@ -394,16 +401,172 @@ function getCurrentSegmentLabel() {
   return segmentLabels[currentSegmentIndex] || "segmento";
 }
 
-function getTranscriptDisplay() {
-  const segments = [...capturedSegments];
-
-  if (recognitionSessionActive && currentSegmentChunks.length > 0) {
-    segments.push(currentSegmentChunks.join(" "));
+function getSegmentTextByIndex(index) {
+  if (index < capturedSegments.length) {
+    return capturedSegments[index];
   }
 
-  return segments.length > 0
-    ? segments.map((segment, index) => `${index + 1}) ${segment}`).join("\n")
-    : "Escuchando...";
+  if (recognitionSessionActive && index === capturedSegments.length) {
+    return currentSegmentChunks.join(" ").trim();
+  }
+
+  return "";
+}
+
+function getSegmentEvaluation(segmentText, index) {
+  if (!segmentText || !currentWord) {
+    return "pending";
+  }
+
+  const cleanedWord = normalizeText(currentWord.word);
+
+  if (index === 1) {
+    return extractSpelledLetters(segmentText) === cleanedWord ? "correct" : "incorrect";
+  }
+
+  return segmentMatchesWord(segmentText, cleanedWord) ? "correct" : "incorrect";
+}
+
+function canRecordAudioSegments() {
+  return Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
+}
+
+async function ensureMediaStream() {
+  if (mediaStream) {
+    return mediaStream;
+  }
+
+  mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  return mediaStream;
+}
+
+function revokeSegmentAudioUrl(index) {
+  if (!segmentAudioUrls[index]) {
+    return;
+  }
+
+  URL.revokeObjectURL(segmentAudioUrls[index]);
+  segmentAudioUrls[index] = null;
+}
+
+function clearSegmentAudios() {
+  segmentAudioUrls.forEach((_, index) => {
+    revokeSegmentAudioUrl(index);
+  });
+  segmentAudioUrls = [];
+}
+
+async function startSegmentAudioRecording(index) {
+  if (!canRecordAudioSegments()) {
+    return false;
+  }
+
+  const stream = await ensureMediaStream();
+  mediaChunks = [];
+  recordingSegmentIndex = index;
+  revokeSegmentAudioUrl(index);
+
+  mediaRecorder = new MediaRecorder(stream);
+  mediaRecorder.ondataavailable = (event) => {
+    if (event.data && event.data.size > 0) {
+      mediaChunks.push(event.data);
+    }
+  };
+
+  audioStopPromise = new Promise((resolve) => {
+    mediaRecorder.onstop = () => {
+      resolve(true);
+    };
+
+    mediaRecorder.onerror = () => {
+      resolve(false);
+    };
+  });
+
+  mediaRecorder.start();
+  return true;
+}
+
+async function stopSegmentAudioRecording(discard = false) {
+  if (!mediaRecorder || mediaRecorder.state === "inactive") {
+    return false;
+  }
+
+  mediaRecorder.stop();
+  const stopped = await audioStopPromise;
+  const chunkCount = mediaChunks.length;
+
+  if (!discard && stopped && chunkCount > 0 && recordingSegmentIndex >= 0) {
+    const blob = new Blob(mediaChunks, { type: "audio/webm" });
+    segmentAudioUrls[recordingSegmentIndex] = URL.createObjectURL(blob);
+  }
+
+  mediaRecorder = null;
+  mediaChunks = [];
+  audioStopPromise = null;
+  recordingSegmentIndex = -1;
+  return stopped;
+}
+
+function renderTranscript() {
+  transcriptEl.innerHTML = "";
+
+  const fragment = document.createDocumentFragment();
+  let hasAnySegment = false;
+
+  segmentLabels.forEach((label, index) => {
+    const segmentText = getSegmentTextByIndex(index);
+    const status = getSegmentEvaluation(segmentText, index);
+    const row = document.createElement("div");
+    row.className = `segment-row ${status}`;
+
+    const header = document.createElement("div");
+    header.className = "segment-summary";
+
+    const labelEl = document.createElement("span");
+    labelEl.className = "segment-label";
+    labelEl.textContent = label;
+
+    const statusEl = document.createElement("span");
+    statusEl.className = `segment-status ${status}`;
+    statusEl.textContent = status === "correct" ? "✓" : status === "incorrect" ? "✗" : "·";
+
+    header.append(labelEl, statusEl);
+    row.append(header);
+
+    const detail = document.createElement("p");
+    detail.className = `segment-text ${status === "pending" ? "pending-text" : ""}`.trim();
+    detail.hidden = !transcriptDetailsVisible;
+
+    if (segmentText) {
+      hasAnySegment = true;
+      detail.textContent = segmentText;
+    } else {
+      detail.textContent = recognitionSessionActive && index === capturedSegments.length ? "Grabando..." : "Pendiente";
+    }
+
+    row.append(detail);
+
+    const segmentAudioUrl = segmentAudioUrls[index];
+    if (segmentAudioUrl) {
+      hasAnySegment = true;
+      const audioEl = document.createElement("audio");
+      audioEl.className = "segment-audio";
+      audioEl.controls = true;
+      audioEl.preload = "metadata";
+      audioEl.src = segmentAudioUrl;
+      row.append(audioEl);
+    }
+
+    fragment.append(row);
+  });
+
+  if (!hasAnySegment && !recognitionSessionActive) {
+    transcriptEl.textContent = "Aun no hay respuesta.";
+    return;
+  }
+
+  transcriptEl.append(fragment);
 }
 
 function clearSilenceTimer() {
@@ -455,13 +618,21 @@ function resetAttemptState() {
     recognition.abort();
   }
 
+  if (mediaRecorder && mediaRecorder.state !== "inactive") {
+    void stopSegmentAudioRecording(true);
+  }
+
   recognitionSessionActive = false;
   finalizeWhenRecognitionEnds = false;
   clearSilenceTimer();
+  clearSegmentAudios();
   capturedSegments = [];
   currentSegmentChunks = [];
   currentSegmentIndex = 0;
-  transcriptEl.textContent = "Aun no hay respuesta.";
+  transcriptDetailsVisible = false;
+  statusPanelEl.hidden = true;
+  toggleTranscriptButton.textContent = "Ver segmentos";
+  renderTranscript();
   updateCaptureButtonState();
 }
 
@@ -512,11 +683,12 @@ function verifyAttempt(segments) {
   setFeedback("Intento invalido. Repite el patron con pausas claras.", "error");
 }
 
-function finishSegmentCapture() {
+async function finishSegmentCapture() {
   const segmentText = currentSegmentChunks.join(" ").trim();
   recognitionSessionActive = false;
   finalizeWhenRecognitionEnds = false;
   clearSilenceTimer();
+  await stopSegmentAudioRecording(!segmentText);
 
   if (!segmentText) {
     currentSegmentChunks = [];
@@ -528,7 +700,7 @@ function finishSegmentCapture() {
   capturedSegments.push(segmentText);
   currentSegmentChunks = [];
   currentSegmentIndex = capturedSegments.length;
-  transcriptEl.textContent = getTranscriptDisplay();
+  renderTranscript();
   updateCaptureButtonState();
 
   if (capturedSegments.length === segmentLabels.length) {
@@ -540,7 +712,7 @@ function finishSegmentCapture() {
   setFeedback(`Segmento guardado. Presiona para grabar la ${getCurrentSegmentLabel()}.`, "");
 }
 
-function startSegmentCapture() {
+async function startSegmentCapture() {
   if (!recognition) {
     return;
   }
@@ -562,9 +734,22 @@ function startSegmentCapture() {
   currentSegmentChunks = [];
   recognitionSessionActive = true;
   finalizeWhenRecognitionEnds = false;
-  transcriptEl.textContent = getTranscriptDisplay();
+
+  let audioRecordingEnabled = false;
+  try {
+    audioRecordingEnabled = await startSegmentAudioRecording(currentSegmentIndex);
+  } catch {
+    audioRecordingEnabled = false;
+  }
+
+  renderTranscript();
+
+  const audioMessage = audioRecordingEnabled
+    ? " Tambien se esta guardando el audio del segmento."
+    : "";
+
   setFeedback(
-    `Grabando la ${getCurrentSegmentLabel()}. Di solo ese segmento y espera a que se guarde.`,
+    `Grabando la ${getCurrentSegmentLabel()}. Di solo ese segmento y espera a que se guarde.${audioMessage}`,
     ""
   );
   updateCaptureButtonState();
@@ -572,6 +757,9 @@ function startSegmentCapture() {
   try {
     recognition.start();
   } catch {
+    if (mediaRecorder && mediaRecorder.state !== "inactive") {
+      await stopSegmentAudioRecording(true);
+    }
     recognitionSessionActive = false;
     currentSegmentChunks = [];
     updateCaptureButtonState();
@@ -610,7 +798,7 @@ function setupRecognition() {
       queueSilenceFinalization();
     }
 
-    transcriptEl.textContent = getTranscriptDisplay();
+    renderTranscript();
   };
 
   recognition.onerror = (event) => {
@@ -642,7 +830,7 @@ function setupRecognition() {
     setFeedback(`No se pudo reconocer la ${getCurrentSegmentLabel()}: ${event.error}.`, "error");
   };
 
-  recognition.onend = () => {
+  recognition.onend = async () => {
     if (!recognitionSessionActive) {
       return;
     }
@@ -665,12 +853,8 @@ function setupRecognition() {
       return;
     }
 
-    finishSegmentCapture();
-
-    if (capturedSegments.length === 0 && currentSegmentIndex === 0) {
-      transcriptEl.textContent = "Aun no hay respuesta.";
-      return;
-    }
+    await finishSegmentCapture();
+    renderTranscript();
   };
 }
 
@@ -684,11 +868,24 @@ resetAttemptButton.addEventListener("click", () => {
   setFeedback("Intento reiniciado. Empieza otra vez con la palabra inicial.", "");
 });
 toggleTranscriptButton.addEventListener("click", () => {
-  const isHidden = statusPanelEl.hidden;
-  statusPanelEl.hidden = !isHidden;
-  toggleTranscriptButton.textContent = isHidden
-    ? "Ocultar lo que entendio el navegador"
-    : "Ver lo que entendio el navegador";
+  if (statusPanelEl.hidden) {
+    statusPanelEl.hidden = false;
+    transcriptDetailsVisible = false;
+    toggleTranscriptButton.textContent = "Mostrar texto de segmentos";
+    renderTranscript();
+    return;
+  }
+
+  if (!transcriptDetailsVisible) {
+    transcriptDetailsVisible = true;
+    toggleTranscriptButton.textContent = "Ocultar segmentos";
+    renderTranscript();
+    return;
+  }
+
+  statusPanelEl.hidden = true;
+  transcriptDetailsVisible = false;
+  toggleTranscriptButton.textContent = "Ver segmentos";
 });
 
 updateVoices();
@@ -698,7 +895,12 @@ if ("speechSynthesis" in window) {
 
 setupRecognition();
 
+if (!canRecordAudioSegments()) {
+  supportMessageEl.textContent = `${supportMessageEl.textContent} La grabacion de audio por segmento no esta disponible en este navegador.`.trim();
+}
+
 updateCaptureButtonState();
+renderTranscript();
 
 loadWordsFromJson()
   .then(() => {

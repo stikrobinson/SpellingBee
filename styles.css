@@ -98,7 +98,73 @@ h1 {
 }
 
 .transcript {
-  white-space: pre-line;
+  display: grid;
+  gap: 10px;
+}
+
+.segment-row {
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(38, 56, 40, 0.08);
+}
+
+.segment-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.segment-label {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.segment-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  font-size: 1.05rem;
+  font-weight: 800;
+  background: rgba(95, 110, 100, 0.12);
+  color: var(--muted);
+}
+
+.segment-status.correct {
+  background: rgba(23, 100, 59, 0.14);
+  color: var(--success);
+}
+
+.segment-status.incorrect {
+  background: rgba(155, 44, 29, 0.14);
+  color: var(--error);
+}
+
+.segment-row.correct {
+  border-color: rgba(23, 100, 59, 0.2);
+}
+
+.segment-row.incorrect {
+  border-color: rgba(155, 44, 29, 0.2);
+}
+
+.segment-text {
+  margin: 10px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.segment-audio {
+  margin-top: 10px;
+  width: 100%;
+}
+
+.pending-text {
+  font-style: italic;
 }
 
 .hint-controls {
