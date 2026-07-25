@@ -46,6 +46,20 @@
           </div>
         </div>
 
+        <div class="capture-mode-controls" id="capture-mode-controls" hidden>
+          <span class="label">Modo de captura (movil)</span>
+          <div class="capture-mode-options" role="radiogroup" aria-label="Modo de captura en movil">
+            <label>
+              <input type="radio" name="capture-mode" value="recognition" checked />
+              Reconocimiento de voz
+            </label>
+            <label>
+              <input type="radio" name="capture-mode" value="audio" />
+              Solo guardar audio
+            </label>
+          </div>
+        </div>
+
         <div class="control-actions">
           <button id="new-word" type="button">Nueva palabra</button>
           <button id="show-hint" type="button">Mostrar pista (opcional)</button>

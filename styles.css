@@ -175,6 +175,14 @@ h1 {
   border: 1px solid rgba(38, 56, 40, 0.08);
 }
 
+.capture-mode-controls {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(38, 56, 40, 0.08);
+}
+
 .hint-options {
   display: flex;
   gap: 16px;
@@ -183,7 +191,22 @@ h1 {
   font-weight: 600;
 }
 
+.capture-mode-options {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
 .hint-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.capture-mode-options label {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -306,6 +329,11 @@ button:disabled {
   }
 
   .hint-options {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .capture-mode-options {
     flex-direction: column;
     gap: 8px;
   }

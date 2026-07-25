@@ -107,6 +107,8 @@ const resetAttemptButton = document.getElementById("reset-attempt");
 const toggleTranscriptButton = document.getElementById("toggle-transcript");
 const statusPanelEl = document.getElementById("status-panel");
 const hintTypeInputs = document.querySelectorAll('input[name="hint-type"]');
+const captureModeControlsEl = document.getElementById("capture-mode-controls");
+const captureModeInputs = document.querySelectorAll('input[name="capture-mode"]');
 
 const SpeechRecognition =
   window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -134,6 +136,8 @@ let segmentAudioUrls = [];
 let recordingSegmentIndex = -1;
 let audioStopPromise = null;
 let consecutiveNoSpeechErrors = 0;
+let captureMode = "recognition";
+let activeCaptureMode = null;
 const supportNotes = new Set();
 const recognitionSilenceGraceMs = 3200;
 const maxSegmentDurationMs = 15000;
@@ -163,7 +167,28 @@ function isLikelyMobileDevice() {
 }
 
 function shouldCaptureSegmentAudio() {
-  return !isLikelyMobileDevice();
+  return !isLikelyMobileDevice() || captureMode === "audio";
+}
+
+function getSelectedCaptureMode() {
+  const selectedInput = Array.from(captureModeInputs).find((input) => input.checked);
+  return selectedInput ? selectedInput.value : "recognition";
+}
+
+function setCaptureMode(nextMode) {
+  captureMode = nextMode === "audio" ? "audio" : "recognition";
+}
+
+function updateCaptureModeUI() {
+  if (!captureModeControlsEl) {
+    return;
+  }
+
+  captureModeControlsEl.hidden = !isLikelyMobileDevice();
+
+  captureModeInputs.forEach((input) => {
+    input.checked = input.value === captureMode;
+  });
 }
 
 async function loadWordsFromJson() {
@@ -428,6 +453,14 @@ function getSegmentTextByIndex(index) {
     return capturedSegments[index];
   }
 
+  if (
+    activeCaptureMode === "audio" &&
+    recognitionSessionActive &&
+    index === capturedSegments.length
+  ) {
+    return "Grabando audio del segmento...";
+  }
+
   if (recognitionSessionActive && index === capturedSegments.length) {
     return currentSegmentChunks.join(" ").trim();
   }
@@ -466,6 +499,35 @@ function addSupportNote(message) {
   renderSupportMessage();
 }
 
+function configureCaptureModeSupport() {
+  if (!isLikelyMobileDevice()) {
+    setCaptureMode("recognition");
+    return;
+  }
+
+  const speechSupported = Boolean(SpeechRecognition);
+  const audioSupported = canRecordAudioSegments();
+
+  captureModeInputs.forEach((input) => {
+    if (input.value === "recognition") {
+      input.disabled = !speechSupported;
+    }
+
+    if (input.value === "audio") {
+      input.disabled = !audioSupported;
+    }
+  });
+
+  if (speechSupported) {
+    setCaptureMode("recognition");
+    return;
+  }
+
+  if (audioSupported) {
+    setCaptureMode("audio");
+  }
+}
+
 function initializeSupportNotes() {
   if (!SpeechRecognition) {
     addSupportNote(
@@ -481,7 +543,7 @@ function initializeSupportNotes() {
 
   if (isLikelyMobileDevice()) {
     addSupportNote(
-      "En movil se prioriza el reconocimiento de voz y se desactiva el guardado de audio por segmento para evitar bloqueos del microfono."
+      "En movil puedes elegir entre reconocimiento de voz o solo guardar audio por segmento, pero no ambos a la vez."
     );
   }
 
@@ -679,7 +741,16 @@ function queueMaxSegmentFinalization() {
 
   clearMaxSegmentTimer();
   maxSegmentTimerId = window.setTimeout(() => {
-    if (!recognitionSessionActive || !recognition) {
+    if (!recognitionSessionActive) {
+      return;
+    }
+
+    if (activeCaptureMode === "audio") {
+      void finishAudioOnlySegmentCapture();
+      return;
+    }
+
+    if (!recognition) {
       return;
     }
 
@@ -705,6 +776,14 @@ function updateCaptureButtonState() {
     return;
   }
 
+  if (captureMode === "audio") {
+    captureSegmentButton.textContent = recognitionSessionActive
+      ? `Finalizar ${getCurrentSegmentLabel()} (${currentSegmentIndex + 1}/3)`
+      : `Grabar audio ${getCurrentSegmentLabel()} (${currentSegmentIndex + 1}/3)`;
+    captureSegmentButton.disabled = false;
+    return;
+  }
+
   captureSegmentButton.textContent = `Grabar ${getCurrentSegmentLabel()} (${currentSegmentIndex + 1}/3)`;
   captureSegmentButton.disabled = recognitionSessionActive;
 }
@@ -721,6 +800,7 @@ function resetAttemptState() {
   }
 
   recognitionSessionActive = false;
+  activeCaptureMode = null;
   finalizeWhenRecognitionEnds = false;
   clearSilenceTimer();
   clearMaxSegmentTimer();
@@ -785,6 +865,7 @@ function verifyAttempt(segments) {
 async function finishSegmentCapture() {
   const segmentText = currentSegmentChunks.join(" ").trim();
   recognitionSessionActive = false;
+  activeCaptureMode = null;
   finalizeWhenRecognitionEnds = false;
   clearSilenceTimer();
   clearMaxSegmentTimer();
@@ -812,8 +893,78 @@ async function finishSegmentCapture() {
   setFeedback(`Segmento guardado. Presiona para grabar la ${getCurrentSegmentLabel()}.`, "");
 }
 
+async function finishAudioOnlySegmentCapture() {
+  if (!recognitionSessionActive || activeCaptureMode !== "audio") {
+    return;
+  }
+
+  recognitionSessionActive = false;
+  activeCaptureMode = null;
+  clearSilenceTimer();
+  clearMaxSegmentTimer();
+
+  const saved = await stopSegmentAudioRecording(false);
+  capturedSegments.push(saved ? "Audio guardado." : "No se pudo guardar el audio.");
+  currentSegmentIndex = capturedSegments.length;
+  renderTranscript();
+  updateCaptureButtonState();
+
+  if (!saved) {
+    setFeedback("No se pudo guardar el audio del segmento. Intentalo de nuevo.", "error");
+    return;
+  }
+
+  if (capturedSegments.length === segmentLabels.length) {
+    setFeedback("Se guardaron los 3 audios. Revisa cada segmento desde los controles de reproduccion.", "success");
+    return;
+  }
+
+  setFeedback(`Audio guardado. Presiona para grabar la ${getCurrentSegmentLabel()}.`, "");
+}
+
+async function startAudioOnlySegmentCapture() {
+  if (!canRecordAudioSegments()) {
+    setFeedback("Tu navegador no permite grabar audio en este dispositivo.", "error");
+    return;
+  }
+
+  if (recognitionSessionActive && activeCaptureMode === "audio") {
+    await finishAudioOnlySegmentCapture();
+    return;
+  }
+
+  recognitionSessionActive = true;
+  activeCaptureMode = "audio";
+  finalizeWhenRecognitionEnds = false;
+
+  try {
+    await startSegmentAudioRecording(currentSegmentIndex);
+  } catch {
+    recognitionSessionActive = false;
+    activeCaptureMode = null;
+    releaseMediaStream();
+    updateCaptureButtonState();
+    setFeedback("No se pudo iniciar la grabacion de audio.", "error");
+    return;
+  }
+
+  renderTranscript();
+  queueMaxSegmentFinalization();
+  updateCaptureButtonState();
+  setFeedback(
+    `Grabando audio de ${getCurrentSegmentLabel()}. Pulsa el mismo boton para finalizar o espera el cierre automatico.`,
+    ""
+  );
+}
+
 async function startSegmentCapture() {
+  if (captureMode === "audio") {
+    await startAudioOnlySegmentCapture();
+    return;
+  }
+
   if (!recognition) {
+    setFeedback("El reconocimiento de voz no esta disponible en este dispositivo.", "error");
     return;
   }
 
@@ -833,6 +984,7 @@ async function startSegmentCapture() {
 
   currentSegmentChunks = [];
   recognitionSessionActive = true;
+  activeCaptureMode = "recognition";
   finalizeWhenRecognitionEnds = false;
 
   let audioRecordingEnabled = false;
@@ -863,6 +1015,7 @@ async function startSegmentCapture() {
     }
     releaseMediaStream();
     recognitionSessionActive = false;
+    activeCaptureMode = null;
     currentSegmentChunks = [];
     updateCaptureButtonState();
     setFeedback("No se pudo iniciar el reconocimiento de voz.", "error");
@@ -871,7 +1024,7 @@ async function startSegmentCapture() {
 
 function setupRecognition() {
   if (!SpeechRecognition) {
-    captureSegmentButton.disabled = true;
+    recognition = null;
     return;
   }
 
@@ -930,6 +1083,7 @@ function setupRecognition() {
           recognition.start();
         } catch {
           recognitionSessionActive = false;
+          activeCaptureMode = null;
           clearSilenceTimer();
           updateCaptureButtonState();
           setFeedback("No se pudo continuar escuchando la voz.", "error");
@@ -957,7 +1111,9 @@ function setupRecognition() {
     }
 
     recognitionSessionActive = false;
+    activeCaptureMode = null;
     clearSilenceTimer();
+    clearMaxSegmentTimer();
     updateCaptureButtonState();
     setFeedback(`No se pudo reconocer la ${getCurrentSegmentLabel()}: ${event.error}.`, "error");
   };
@@ -977,6 +1133,7 @@ function setupRecognition() {
           recognition.start();
         } catch {
           recognitionSessionActive = false;
+          activeCaptureMode = null;
           clearSilenceTimer();
           clearMaxSegmentTimer();
           updateCaptureButtonState();
@@ -999,11 +1156,32 @@ function setupRecognition() {
   };
 }
 
+function handleCaptureModeChange() {
+  const nextMode = getSelectedCaptureMode();
+  if (nextMode === captureMode) {
+    return;
+  }
+
+  resetAttemptState();
+  setCaptureMode(nextMode);
+  updateCaptureButtonState();
+
+  if (captureMode === "audio") {
+    setFeedback("Modo solo audio activo: puedes grabar segmentos, pero sin transcripcion automatica.", "");
+    return;
+  }
+
+  setFeedback("Modo reconocimiento activo: se evaluara palabra, deletreo y palabra.", "");
+}
+
 newWordButton.addEventListener("click", pickWord);
 playWordButton.addEventListener("click", speakWord);
 showHintButton.addEventListener("click", showOptionalHint);
 showAnswerButton.addEventListener("click", showCorrectWord);
 captureSegmentButton.addEventListener("click", startSegmentCapture);
+captureModeInputs.forEach((input) => {
+  input.addEventListener("change", handleCaptureModeChange);
+});
 resetAttemptButton.addEventListener("click", () => {
   resetAttemptState();
   setFeedback("Intento reiniciado. Empieza otra vez con la palabra inicial.", "");
@@ -1035,6 +1213,8 @@ if ("speechSynthesis" in window) {
 }
 
 setupRecognition();
+configureCaptureModeSupport();
+updateCaptureModeUI();
 initializeSupportNotes();
 
 updateCaptureButtonState();
