@@ -103,6 +103,8 @@ const playWordButton = document.getElementById("play-word");
 const showHintButton = document.getElementById("show-hint");
 const showAnswerButton = document.getElementById("show-answer");
 const startSpellingButton = document.getElementById("start-spelling");
+const toggleTranscriptButton = document.getElementById("toggle-transcript");
+const statusPanelEl = document.getElementById("status-panel");
 const hintTypeInputs = document.querySelectorAll('input[name="hint-type"]');
 
 const SpeechRecognition =
@@ -117,6 +119,10 @@ let roundVoice = null;
 let roundRate = 0.8;
 let roundPitch = 1;
 let capturedSegments = [];
+let recognitionSessionActive = false;
+let finalizeWhenRecognitionEnds = false;
+let silenceTimerId = null;
+const recognitionSilenceGraceMs = 2600;
 
 function normalizeWordEntry(entry) {
   return {
@@ -379,6 +385,36 @@ function segmentMatchesWord(segment, targetWord) {
   return segmentContainsExactWord(segment, targetWord);
 }
 
+function clearSilenceTimer() {
+  if (silenceTimerId) {
+    window.clearTimeout(silenceTimerId);
+    silenceTimerId = null;
+  }
+}
+
+function queueSilenceFinalization() {
+  if (!recognitionSessionActive) {
+    return;
+  }
+
+  clearSilenceTimer();
+  silenceTimerId = window.setTimeout(() => {
+    if (!recognitionSessionActive || !recognition) {
+      return;
+    }
+
+    finalizeWhenRecognitionEnds = true;
+    recognition.stop();
+  }, recognitionSilenceGraceMs);
+}
+
+function finishRecognitionSession() {
+  recognitionSessionActive = false;
+  finalizeWhenRecognitionEnds = false;
+  clearSilenceTimer();
+  startSpellingButton.disabled = false;
+}
+
 function verifyAttempt(segments) {
   const cleanedWord = normalizeText(currentWord.word);
   const normalizedSegments = segments
@@ -436,11 +472,26 @@ function startRecognition() {
     return;
   }
 
+  if (recognitionSessionActive) {
+    return;
+  }
+
   transcriptEl.textContent = "Escuchando...";
   capturedSegments = [];
-  setFeedback("Formato estricto: palabra, pausa, deletreo, pausa, palabra.", "");
+  recognitionSessionActive = true;
+  finalizeWhenRecognitionEnds = false;
+  setFeedback(
+    "Di toda la secuencia y espera a que termine para ver el resultado.",
+    ""
+  );
   startSpellingButton.disabled = true;
-  recognition.start();
+
+  try {
+    recognition.start();
+  } catch {
+    finishRecognitionSession();
+    setFeedback("No se pudo iniciar el reconocimiento de voz.", "error");
+  }
 }
 
 function setupRecognition() {
@@ -470,6 +521,10 @@ function setupRecognition() {
       }
     }
 
+    if (capturedSegments.length > 0) {
+      queueSilenceFinalization();
+    }
+
     transcriptEl.textContent =
       capturedSegments.length > 0
         ? capturedSegments.map((segment, index) => `${index + 1}) ${segment}`).join(" | ")
@@ -477,11 +532,52 @@ function setupRecognition() {
   };
 
   recognition.onerror = (event) => {
+    if (!recognitionSessionActive) {
+      return;
+    }
+
+    if (event.error === "no-speech" && !finalizeWhenRecognitionEnds) {
+      window.setTimeout(() => {
+        if (!recognitionSessionActive || finalizeWhenRecognitionEnds || !recognition) {
+          return;
+        }
+
+        try {
+          recognition.start();
+        } catch {
+          finishRecognitionSession();
+          setFeedback("No se pudo continuar escuchando la voz.", "error");
+        }
+      }, 250);
+      return;
+    }
+
+    finishRecognitionSession();
     setFeedback(`No se pudo reconocer la voz: ${event.error}.`, "error");
   };
 
   recognition.onend = () => {
-    startSpellingButton.disabled = false;
+    if (!recognitionSessionActive) {
+      return;
+    }
+
+    if (!finalizeWhenRecognitionEnds) {
+      window.setTimeout(() => {
+        if (!recognitionSessionActive || finalizeWhenRecognitionEnds || !recognition) {
+          return;
+        }
+
+        try {
+          recognition.start();
+        } catch {
+          finishRecognitionSession();
+          setFeedback("No se pudo continuar escuchando la voz.", "error");
+        }
+      }, 250);
+      return;
+    }
+
+    finishRecognitionSession();
 
     if (capturedSegments.length === 0) {
       setFeedback("No se detectaron segmentos de voz. Intenta de nuevo.", "error");
@@ -498,6 +594,13 @@ playWordButton.addEventListener("click", speakWord);
 showHintButton.addEventListener("click", showOptionalHint);
 showAnswerButton.addEventListener("click", showCorrectWord);
 startSpellingButton.addEventListener("click", startRecognition);
+toggleTranscriptButton.addEventListener("click", () => {
+  const isHidden = statusPanelEl.hidden;
+  statusPanelEl.hidden = !isHidden;
+  toggleTranscriptButton.textContent = isHidden
+    ? "Ocultar lo que entendio el navegador"
+    : "Ver lo que entendio el navegador";
+});
 
 updateVoices();
 if ("speechSynthesis" in window) {
