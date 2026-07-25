@@ -102,7 +102,8 @@ const newWordButton = document.getElementById("new-word");
 const playWordButton = document.getElementById("play-word");
 const showHintButton = document.getElementById("show-hint");
 const showAnswerButton = document.getElementById("show-answer");
-const startSpellingButton = document.getElementById("start-spelling");
+const captureSegmentButton = document.getElementById("capture-segment");
+const resetAttemptButton = document.getElementById("reset-attempt");
 const toggleTranscriptButton = document.getElementById("toggle-transcript");
 const statusPanelEl = document.getElementById("status-panel");
 const hintTypeInputs = document.querySelectorAll('input[name="hint-type"]');
@@ -119,10 +120,13 @@ let roundVoice = null;
 let roundRate = 0.8;
 let roundPitch = 1;
 let capturedSegments = [];
+let currentSegmentChunks = [];
 let recognitionSessionActive = false;
 let finalizeWhenRecognitionEnds = false;
 let silenceTimerId = null;
-const recognitionSilenceGraceMs = 2600;
+let currentSegmentIndex = 0;
+const recognitionSilenceGraceMs = 3200;
+const segmentLabels = ["palabra inicial", "deletreo", "palabra final"];
 
 function normalizeWordEntry(entry) {
   return {
@@ -205,6 +209,7 @@ function pickWord() {
   currentWord = words[randomIndex];
   playCount = 0;
   createRoundVoiceProfile();
+  resetAttemptState();
   categoryEl.textContent = currentWord.category;
   hintEl.textContent = "Pista en audio no reproducida.";
   answerEl.textContent = "Palabra correcta oculta.";
@@ -385,6 +390,22 @@ function segmentMatchesWord(segment, targetWord) {
   return segmentContainsExactWord(segment, targetWord);
 }
 
+function getCurrentSegmentLabel() {
+  return segmentLabels[currentSegmentIndex] || "segmento";
+}
+
+function getTranscriptDisplay() {
+  const segments = [...capturedSegments];
+
+  if (segmentCaptureActive && currentSegmentChunks.length > 0) {
+    segments.push(currentSegmentChunks.join(" "));
+  }
+
+  return segments.length > 0
+    ? segments.map((segment, index) => `${index + 1}) ${segment}`).join(" | ")
+    : "Escuchando...";
+}
+
 function clearSilenceTimer() {
   if (silenceTimerId) {
     window.clearTimeout(silenceTimerId);
@@ -408,11 +429,40 @@ function queueSilenceFinalization() {
   }, recognitionSilenceGraceMs);
 }
 
-function finishRecognitionSession() {
+function updateCaptureButtonState() {
+  if (!captureSegmentButton) {
+    return;
+  }
+
+  if (!currentWord) {
+    captureSegmentButton.textContent = "Grabar segmento";
+    captureSegmentButton.disabled = true;
+    return;
+  }
+
+  if (currentSegmentIndex >= segmentLabels.length) {
+    captureSegmentButton.textContent = "Intento completado";
+    captureSegmentButton.disabled = true;
+    return;
+  }
+
+  captureSegmentButton.textContent = `Grabar ${getCurrentSegmentLabel()} (${currentSegmentIndex + 1}/3)`;
+  captureSegmentButton.disabled = recognitionSessionActive;
+}
+
+function resetAttemptState() {
+  if (recognitionSessionActive && recognition) {
+    recognition.abort();
+  }
+
   recognitionSessionActive = false;
   finalizeWhenRecognitionEnds = false;
   clearSilenceTimer();
-  startSpellingButton.disabled = false;
+  capturedSegments = [];
+  currentSegmentChunks = [];
+  currentSegmentIndex = 0;
+  transcriptEl.textContent = "Aun no hay respuesta.";
+  updateCaptureButtonState();
 }
 
 function verifyAttempt(segments) {
@@ -462,7 +512,35 @@ function verifyAttempt(segments) {
   setFeedback("Intento invalido. Repite el patron con pausas claras.", "error");
 }
 
-function startRecognition() {
+function finishSegmentCapture() {
+  const segmentText = currentSegmentChunks.join(" ").trim();
+  recognitionSessionActive = false;
+  finalizeWhenRecognitionEnds = false;
+  clearSilenceTimer();
+
+  if (!segmentText) {
+    currentSegmentChunks = [];
+    updateCaptureButtonState();
+    setFeedback("No se detecto voz en ese segmento. Intentalo de nuevo.", "error");
+    return;
+  }
+
+  capturedSegments.push(segmentText);
+  currentSegmentChunks = [];
+  currentSegmentIndex = capturedSegments.length;
+  transcriptEl.textContent = getTranscriptDisplay();
+  updateCaptureButtonState();
+
+  if (capturedSegments.length === segmentLabels.length) {
+    setFeedback("Segmentos completos. Evaluando el intento...", "");
+    verifyAttempt(capturedSegments);
+    return;
+  }
+
+  setFeedback(`Segmento guardado. Ahora graba la ${getCurrentSegmentLabel()}.`, "");
+}
+
+function startSegmentCapture() {
   if (!recognition) {
     return;
   }
@@ -476,20 +554,24 @@ function startRecognition() {
     return;
   }
 
-  transcriptEl.textContent = "Escuchando...";
-  capturedSegments = [];
+  if (currentSegmentIndex >= segmentLabels.length) {
+    setFeedback("El intento ya fue completado. Usa reiniciar para volver a empezar.", "error");
+    return;
+  }
+
+  currentSegmentChunks = [];
   recognitionSessionActive = true;
   finalizeWhenRecognitionEnds = false;
-  setFeedback(
-    "Di toda la secuencia y espera a que termine para ver el resultado.",
-    ""
-  );
-  startSpellingButton.disabled = true;
+  transcriptEl.textContent = getTranscriptDisplay();
+  setFeedback(`Di la ${getCurrentSegmentLabel()} y espera a que termine ese segmento.`, "");
+  updateCaptureButtonState();
 
   try {
     recognition.start();
   } catch {
-    finishRecognitionSession();
+    recognitionSessionActive = false;
+    currentSegmentChunks = [];
+    updateCaptureButtonState();
     setFeedback("No se pudo iniciar el reconocimiento de voz.", "error");
   }
 }
@@ -517,18 +599,15 @@ function setupRecognition() {
 
       const segment = result[0].transcript.trim();
       if (segment) {
-        capturedSegments.push(segment);
+        currentSegmentChunks.push(segment);
       }
     }
 
-    if (capturedSegments.length > 0) {
+    if (currentSegmentChunks.length > 0) {
       queueSilenceFinalization();
     }
 
-    transcriptEl.textContent =
-      capturedSegments.length > 0
-        ? capturedSegments.map((segment, index) => `${index + 1}) ${segment}`).join(" | ")
-        : "Escuchando...";
+    transcriptEl.textContent = getTranscriptDisplay();
   };
 
   recognition.onerror = (event) => {
@@ -545,14 +624,18 @@ function setupRecognition() {
         try {
           recognition.start();
         } catch {
-          finishRecognitionSession();
+          recognitionSessionActive = false;
+          clearSilenceTimer();
+          updateCaptureButtonState();
           setFeedback("No se pudo continuar escuchando la voz.", "error");
         }
       }, 250);
       return;
     }
 
-    finishRecognitionSession();
+    recognitionSessionActive = false;
+    clearSilenceTimer();
+    updateCaptureButtonState();
     setFeedback(`No se pudo reconocer la voz: ${event.error}.`, "error");
   };
 
@@ -570,22 +653,21 @@ function setupRecognition() {
         try {
           recognition.start();
         } catch {
-          finishRecognitionSession();
+          recognitionSessionActive = false;
+          clearSilenceTimer();
+          updateCaptureButtonState();
           setFeedback("No se pudo continuar escuchando la voz.", "error");
         }
       }, 250);
       return;
     }
 
-    finishRecognitionSession();
+    finishSegmentCapture();
 
-    if (capturedSegments.length === 0) {
-      setFeedback("No se detectaron segmentos de voz. Intenta de nuevo.", "error");
+    if (capturedSegments.length === 0 && currentSegmentIndex === 0) {
       transcriptEl.textContent = "Aun no hay respuesta.";
       return;
     }
-
-    verifyAttempt(capturedSegments);
   };
 }
 
@@ -593,7 +675,11 @@ newWordButton.addEventListener("click", pickWord);
 playWordButton.addEventListener("click", speakWord);
 showHintButton.addEventListener("click", showOptionalHint);
 showAnswerButton.addEventListener("click", showCorrectWord);
-startSpellingButton.addEventListener("click", startRecognition);
+captureSegmentButton.addEventListener("click", startSegmentCapture);
+resetAttemptButton.addEventListener("click", () => {
+  resetAttemptState();
+  setFeedback("Intento reiniciado. Empieza otra vez con la palabra inicial.", "");
+});
 toggleTranscriptButton.addEventListener("click", () => {
   const isHidden = statusPanelEl.hidden;
   statusPanelEl.hidden = !isHidden;
@@ -608,6 +694,8 @@ if ("speechSynthesis" in window) {
 }
 
 setupRecognition();
+
+updateCaptureButtonState();
 
 loadWordsFromJson()
   .then(() => {

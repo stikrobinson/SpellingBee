@@ -173,6 +173,18 @@ h1 {
   transform: none;
 }
 
+.reset-attempt-btn {
+  background: transparent;
+  color: var(--muted);
+  border: 1.5px solid rgba(38, 56, 40, 0.22);
+  box-shadow: none;
+}
+
+.reset-attempt-btn:hover:not(:disabled) {
+  background: rgba(38, 56, 40, 0.06);
+  transform: none;
+}
+
 button {
   border: 0;
   border-radius: 999px;
