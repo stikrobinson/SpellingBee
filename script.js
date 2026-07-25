@@ -124,6 +124,7 @@ let currentSegmentChunks = [];
 let recognitionSessionActive = false;
 let finalizeWhenRecognitionEnds = false;
 let silenceTimerId = null;
+let maxSegmentTimerId = null;
 let currentSegmentIndex = 0;
 let transcriptDetailsVisible = false;
 let mediaRecorder = null;
@@ -133,6 +134,7 @@ let segmentAudioUrls = [];
 let recordingSegmentIndex = -1;
 let audioStopPromise = null;
 const recognitionSilenceGraceMs = 3200;
+const maxSegmentDurationMs = 15000;
 const segmentLabels = ["palabra inicial", "deletreo", "palabra final"];
 
 function normalizeWordEntry(entry) {
@@ -576,6 +578,13 @@ function clearSilenceTimer() {
   }
 }
 
+function clearMaxSegmentTimer() {
+  if (maxSegmentTimerId) {
+    window.clearTimeout(maxSegmentTimerId);
+    maxSegmentTimerId = null;
+  }
+}
+
 function queueSilenceFinalization() {
   if (!recognitionSessionActive) {
     return;
@@ -590,6 +599,22 @@ function queueSilenceFinalization() {
     finalizeWhenRecognitionEnds = true;
     recognition.stop();
   }, recognitionSilenceGraceMs);
+}
+
+function queueMaxSegmentFinalization() {
+  if (!recognitionSessionActive) {
+    return;
+  }
+
+  clearMaxSegmentTimer();
+  maxSegmentTimerId = window.setTimeout(() => {
+    if (!recognitionSessionActive || !recognition) {
+      return;
+    }
+
+    finalizeWhenRecognitionEnds = true;
+    recognition.stop();
+  }, maxSegmentDurationMs);
 }
 
 function updateCaptureButtonState() {
@@ -625,6 +650,7 @@ function resetAttemptState() {
   recognitionSessionActive = false;
   finalizeWhenRecognitionEnds = false;
   clearSilenceTimer();
+  clearMaxSegmentTimer();
   clearSegmentAudios();
   capturedSegments = [];
   currentSegmentChunks = [];
@@ -688,6 +714,7 @@ async function finishSegmentCapture() {
   recognitionSessionActive = false;
   finalizeWhenRecognitionEnds = false;
   clearSilenceTimer();
+  clearMaxSegmentTimer();
   await stopSegmentAudioRecording(!segmentText);
 
   if (!segmentText) {
@@ -743,6 +770,7 @@ async function startSegmentCapture() {
   }
 
   renderTranscript();
+  queueMaxSegmentFinalization();
 
   const audioMessage = audioRecordingEnabled
     ? " Tambien se esta guardando el audio del segmento."
@@ -807,6 +835,12 @@ function setupRecognition() {
     }
 
     if (event.error === "no-speech" && !finalizeWhenRecognitionEnds) {
+      if (currentSegmentChunks.length > 0 && recognition) {
+        finalizeWhenRecognitionEnds = true;
+        recognition.stop();
+        return;
+      }
+
       window.setTimeout(() => {
         if (!recognitionSessionActive || finalizeWhenRecognitionEnds || !recognition) {
           return;
@@ -846,6 +880,7 @@ function setupRecognition() {
         } catch {
           recognitionSessionActive = false;
           clearSilenceTimer();
+          clearMaxSegmentTimer();
           updateCaptureButtonState();
           setFeedback("No se pudo continuar escuchando la voz.", "error");
         }
@@ -855,6 +890,14 @@ function setupRecognition() {
 
     await finishSegmentCapture();
     renderTranscript();
+  };
+
+  recognition.onspeechend = () => {
+    if (!recognitionSessionActive) {
+      return;
+    }
+
+    queueSilenceFinalization();
   };
 }
 
