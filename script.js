@@ -148,6 +148,16 @@ function normalizeWordEntry(entry) {
   };
 }
 
+function getRecognitionLanguage() {
+  const browserLanguage = (navigator.language || navigator.languages?.[0] || "").toLowerCase();
+
+  if (browserLanguage.startsWith("es")) {
+    return "es-ES";
+  }
+
+  return "en-US";
+}
+
 async function loadWordsFromJson() {
   const response = await fetch("words.json");
   if (!response.ok) {
@@ -852,7 +862,7 @@ function setupRecognition() {
   }
 
   recognition = new SpeechRecognition();
-  recognition.lang = "en-US";
+  recognition.lang = getRecognitionLanguage();
   recognition.continuous = true;
   recognition.interimResults = false;
   recognition.maxAlternatives = 1;
