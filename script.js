@@ -479,6 +479,15 @@ async function ensureMediaStream() {
   return mediaStream;
 }
 
+function releaseMediaStream() {
+  if (!mediaStream) {
+    return;
+  }
+
+  mediaStream.getTracks().forEach((track) => track.stop());
+  mediaStream = null;
+}
+
 function revokeSegmentAudioUrl(index) {
   if (!segmentAudioUrls[index]) {
     return;
@@ -544,6 +553,7 @@ async function stopSegmentAudioRecording(discard = false) {
   mediaChunks = [];
   audioStopPromise = null;
   recordingSegmentIndex = -1;
+  releaseMediaStream();
   return stopped;
 }
 
@@ -682,6 +692,8 @@ function resetAttemptState() {
 
   if (mediaRecorder && mediaRecorder.state !== "inactive") {
     void stopSegmentAudioRecording(true);
+  } else {
+    releaseMediaStream();
   }
 
   recognitionSessionActive = false;
@@ -825,6 +837,7 @@ async function startSegmentCapture() {
     if (mediaRecorder && mediaRecorder.state !== "inactive") {
       await stopSegmentAudioRecording(true);
     }
+    releaseMediaStream();
     recognitionSessionActive = false;
     currentSegmentChunks = [];
     updateCaptureButtonState();
