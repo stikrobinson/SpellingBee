@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Spelling Bee Practice</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700&family=Manrope:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="card">
+        <p class="eyebrow">Spelling Bee Practice</p>
+        <h1>Practica una palabra a la vez</h1>
+        <p class="intro">
+          Escucha la palabra, revisa su categoria y despues deletreala usando tu voz.
+        </p>
+
+        <div class="word-panel">
+          <div>
+            <span class="label">Categoria</span>
+            <p id="category" class="category"></p>
+          </div>
+          <div>
+            <span class="label">Pista</span>
+            <p id="hint" class="hint"></p>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="new-word" type="button">Nueva palabra</button>
+          <button id="play-word" type="button">Escuchar palabra</button>
+          <button id="show-hint" type="button">Mostrar pista (opcional)</button>
+          <button id="start-spelling" type="button">Deletrear con voz</button>
+        </div>
+
+        <div class="status-panel">
+          <span class="label">Lo que entendio el navegador</span>
+          <p id="transcript" class="transcript">Aun no hay respuesta.</p>
+        </div>
+
+        <p id="feedback" class="feedback" aria-live="polite"></p>
+        <p id="support-message" class="support-message"></p>
+      </section>
+    </main>
+
+    <script src="script.js"></script>
+  </body>
+</html>
