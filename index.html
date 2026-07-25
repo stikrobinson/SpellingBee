@@ -32,10 +32,27 @@
           </div>
         </div>
 
-        <div class="actions">
+        <div class="hint-controls">
+          <span class="label">Tipo de pista</span>
+          <div class="hint-options" role="radiogroup" aria-label="Tipo de pista">
+            <label>
+              <input type="radio" name="hint-type" value="definition" checked />
+              Definicion
+            </label>
+            <label>
+              <input type="radio" name="hint-type" value="example" />
+              Ejemplo
+            </label>
+          </div>
+        </div>
+
+        <div class="control-actions">
           <button id="new-word" type="button">Nueva palabra</button>
-          <button id="play-word" type="button">Escuchar palabra</button>
           <button id="show-hint" type="button">Mostrar pista (opcional)</button>
+        </div>
+
+        <div class="primary-actions">
+          <button id="play-word" type="button">Escuchar palabra</button>
           <button id="start-spelling" type="button">Deletrear con voz</button>
         </div>
 
