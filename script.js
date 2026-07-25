@@ -360,6 +360,25 @@ function extractSpelledLetters(transcript) {
   return letters;
 }
 
+function segmentContainsExactWord(segment, targetWord) {
+  const normalizedTokens = segment
+    .toLowerCase()
+    .replace(/[^a-z\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+
+  return normalizedTokens.includes(targetWord);
+}
+
+function segmentMatchesWord(segment, targetWord) {
+  const collapsedSegment = normalizeText(segment);
+  if (collapsedSegment === targetWord) {
+    return true;
+  }
+
+  return segmentContainsExactWord(segment, targetWord);
+}
+
 function verifyAttempt(segments) {
   const cleanedWord = normalizeText(currentWord.word);
   const normalizedSegments = segments
@@ -374,8 +393,11 @@ function verifyAttempt(segments) {
     return;
   }
 
-  const startMatches = normalizedSegments[0].includes(cleanedWord);
-  const endMatches = normalizedSegments[normalizedSegments.length - 1].includes(cleanedWord);
+  const startMatches = segmentMatchesWord(segments[0], cleanedWord);
+  const endMatches = segmentMatchesWord(
+    segments[normalizedSegments.length - 1],
+    cleanedWord
+  );
   const middleRaw = segments.slice(1, -1).join(" ");
   const spelledLetters = extractSpelledLetters(middleRaw);
   const spellingMatches = spelledLetters === cleanedWord;
@@ -390,11 +412,6 @@ function verifyAttempt(segments) {
       "Formato invalido: debes decir la palabra al inicio y al cierre en segmentos separados.",
       "error"
     );
-    return;
-  }
-
-  if (segments.length <= 2) {
-    setFeedback("Falta el segmento central de deletreo entre inicio y cierre.", "error");
     return;
   }
 
