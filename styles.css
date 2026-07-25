@@ -85,6 +85,7 @@ h1 {
 .category,
 .hint,
 .transcript,
+.answer,
 .feedback,
 .support-message {
   margin: 8px 0 0;
@@ -128,6 +129,12 @@ h1 {
 
 .control-actions {
   margin-bottom: 14px;
+}
+
+.answer {
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-weight: 600;
 }
 
 .primary-actions {
