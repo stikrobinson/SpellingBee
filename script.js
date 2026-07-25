@@ -133,6 +133,8 @@ let mediaChunks = [];
 let segmentAudioUrls = [];
 let recordingSegmentIndex = -1;
 let audioStopPromise = null;
+let consecutiveNoSpeechErrors = 0;
+const supportNotes = new Set();
 const recognitionSilenceGraceMs = 3200;
 const maxSegmentDurationMs = 15000;
 const segmentLabels = ["palabra inicial", "deletreo", "palabra final"];
@@ -431,6 +433,41 @@ function getSegmentEvaluation(segmentText, index) {
 
 function canRecordAudioSegments() {
   return Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
+}
+
+function renderSupportMessage() {
+  supportMessageEl.textContent = Array.from(supportNotes).join(" ");
+}
+
+function addSupportNote(message) {
+  if (!message) {
+    return;
+  }
+
+  supportNotes.add(message);
+  renderSupportMessage();
+}
+
+function initializeSupportNotes() {
+  if (!SpeechRecognition) {
+    addSupportNote(
+      "El reconocimiento de voz no esta disponible en este navegador. Prueba con una version reciente de Chrome o Edge."
+    );
+  }
+
+  if (!canRecordAudioSegments()) {
+    addSupportNote(
+      "La grabacion de audio por segmento no esta disponible en este navegador."
+    );
+  }
+
+  const isSecureOrigin =
+    window.isSecureContext || location.hostname === "localhost" || location.hostname === "127.0.0.1";
+  if (!isSecureOrigin) {
+    addSupportNote(
+      "El acceso al microfono suele requerir HTTPS o localhost; en HTTP puede fallar en movil."
+    );
+  }
 }
 
 async function ensureMediaStream() {
@@ -797,8 +834,6 @@ async function startSegmentCapture() {
 
 function setupRecognition() {
   if (!SpeechRecognition) {
-    supportMessageEl.textContent =
-      "El reconocimiento de voz no esta disponible en este navegador. Prueba con una version reciente de Chrome o Edge.";
     captureSegmentButton.disabled = true;
     return;
   }
@@ -818,6 +853,7 @@ function setupRecognition() {
 
       const segment = result[0].transcript.trim();
       if (segment) {
+        consecutiveNoSpeechErrors = 0;
         currentSegmentChunks.push(segment);
       }
     }
@@ -835,6 +871,13 @@ function setupRecognition() {
     }
 
     if (event.error === "no-speech" && !finalizeWhenRecognitionEnds) {
+      consecutiveNoSpeechErrors += 1;
+      if (consecutiveNoSpeechErrors >= 2) {
+        addSupportNote(
+          "No se detecta voz con estabilidad. Revisa permiso de microfono, acerca el microfono y habla despues de pulsar grabar."
+        );
+      }
+
       if (currentSegmentChunks.length > 0 && recognition) {
         finalizeWhenRecognitionEnds = true;
         recognition.stop();
@@ -856,6 +899,24 @@ function setupRecognition() {
         }
       }, 250);
       return;
+    }
+
+    if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+      addSupportNote(
+        "El navegador bloqueo el microfono. Activa el permiso de microfono para este sitio y vuelve a intentar."
+      );
+    }
+
+    if (event.error === "audio-capture") {
+      addSupportNote(
+        "No se detecto una entrada de microfono utilizable en el dispositivo."
+      );
+    }
+
+    if (event.error === "network") {
+      addSupportNote(
+        "Hubo un error de red del reconocimiento de voz. En movil, revisa conexion y vuelve a intentar."
+      );
     }
 
     recognitionSessionActive = false;
@@ -937,10 +998,7 @@ if ("speechSynthesis" in window) {
 }
 
 setupRecognition();
-
-if (!canRecordAudioSegments()) {
-  supportMessageEl.textContent = `${supportMessageEl.textContent} La grabacion de audio por segmento no esta disponible en este navegador.`.trim();
-}
+initializeSupportNotes();
 
 updateCaptureButtonState();
 renderTranscript();
