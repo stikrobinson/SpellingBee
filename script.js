@@ -402,7 +402,7 @@ function getTranscriptDisplay() {
   }
 
   return segments.length > 0
-    ? segments.map((segment, index) => `${index + 1}) ${segment}`).join(" | ")
+    ? segments.map((segment, index) => `${index + 1}) ${segment}`).join("\n")
     : "Escuchando...";
 }
 
@@ -495,7 +495,7 @@ function verifyAttempt(segments) {
 
   if (!startMatches || !endMatches) {
     setFeedback(
-      "Formato invalido: debes decir la palabra al inicio y al cierre en segmentos separados.",
+      "Formato invalido: debes decir la palabra al inicio y al cierre.",
       "error"
     );
     return;
@@ -532,12 +532,12 @@ function finishSegmentCapture() {
   updateCaptureButtonState();
 
   if (capturedSegments.length === segmentLabels.length) {
-    setFeedback("Segmentos completos. Evaluando el intento...", "");
+    setFeedback("Los tres segmentos ya quedaron grabados. Evaluando el intento...", "");
     verifyAttempt(capturedSegments);
     return;
   }
 
-  setFeedback(`Segmento guardado. Ahora graba la ${getCurrentSegmentLabel()}.`, "");
+  setFeedback(`Segmento guardado. Presiona para grabar la ${getCurrentSegmentLabel()}.`, "");
 }
 
 function startSegmentCapture() {
@@ -563,7 +563,10 @@ function startSegmentCapture() {
   recognitionSessionActive = true;
   finalizeWhenRecognitionEnds = false;
   transcriptEl.textContent = getTranscriptDisplay();
-  setFeedback(`Di la ${getCurrentSegmentLabel()} y espera a que termine ese segmento.`, "");
+  setFeedback(
+    `Grabando la ${getCurrentSegmentLabel()}. Di solo ese segmento y espera a que se guarde.`,
+    ""
+  );
   updateCaptureButtonState();
 
   try {
@@ -636,7 +639,7 @@ function setupRecognition() {
     recognitionSessionActive = false;
     clearSilenceTimer();
     updateCaptureButtonState();
-    setFeedback(`No se pudo reconocer la voz: ${event.error}.`, "error");
+    setFeedback(`No se pudo reconocer la ${getCurrentSegmentLabel()}: ${event.error}.`, "error");
   };
 
   recognition.onend = () => {
