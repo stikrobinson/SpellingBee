@@ -158,6 +158,14 @@ function getRecognitionLanguage() {
   return "en-US";
 }
 
+function isLikelyMobileDevice() {
+  return /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent || "");
+}
+
+function shouldCaptureSegmentAudio() {
+  return !isLikelyMobileDevice();
+}
+
 async function loadWordsFromJson() {
   const response = await fetch("words.json");
   if (!response.ok) {
@@ -471,6 +479,12 @@ function initializeSupportNotes() {
     );
   }
 
+  if (isLikelyMobileDevice()) {
+    addSupportNote(
+      "En movil se prioriza el reconocimiento de voz y se desactiva el guardado de audio por segmento para evitar bloqueos del microfono."
+    );
+  }
+
   const isSecureOrigin =
     window.isSecureContext || location.hostname === "localhost" || location.hostname === "127.0.0.1";
   if (!isSecureOrigin) {
@@ -515,7 +529,7 @@ function clearSegmentAudios() {
 }
 
 async function startSegmentAudioRecording(index) {
-  if (!canRecordAudioSegments()) {
+  if (!shouldCaptureSegmentAudio() || !canRecordAudioSegments()) {
     return false;
   }
 
