@@ -397,7 +397,7 @@ function getCurrentSegmentLabel() {
 function getTranscriptDisplay() {
   const segments = [...capturedSegments];
 
-  if (segmentCaptureActive && currentSegmentChunks.length > 0) {
+  if (recognitionSessionActive && currentSegmentChunks.length > 0) {
     segments.push(currentSegmentChunks.join(" "));
   }
 
@@ -580,7 +580,7 @@ function setupRecognition() {
   if (!SpeechRecognition) {
     supportMessageEl.textContent =
       "El reconocimiento de voz no esta disponible en este navegador. Prueba con una version reciente de Chrome o Edge.";
-    startSpellingButton.disabled = true;
+    captureSegmentButton.disabled = true;
     return;
   }
 
@@ -709,6 +709,6 @@ loadWordsFromJson()
     playWordButton.disabled = true;
     showHintButton.disabled = true;
     showAnswerButton.disabled = true;
-    startSpellingButton.disabled = true;
+    captureSegmentButton.disabled = true;
     setFeedback("Error cargando words.json.", "error");
   });
